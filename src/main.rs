@@ -1,4 +1,7 @@
+use futures::StreamExt;
+use libsql::de::from_row;
 use libsql::{Builder, Error};
+use serde::{Deserialize, Serialize};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -19,11 +22,19 @@ async fn main() -> Result<(), Error> {
 
     let conn = db.connect()?;
 
-    // conn.execute(
-    //     "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
-    //     (),
-    // )
-    // .await?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS characters (
+        name TEXT PRIMARY KEY,
+        class TEXT NOT NULL CHECK (class IN ('warrior', 'mage', 'ranger')),
+        gold INTEGER NOT NULL CHECK (gold >= 0)
+        )",
+        (),
+    )
+    .await?;
+
+    let mut test = conn.query("SELECT * FROM characters", ()).await.unwrap();
+    let characters: Vec<Character> = into_rows(test).await;
+    println!("{:?}", characters);
 
     axum::serve(listener, router).await.unwrap();
 
@@ -32,4 +43,31 @@ async fn main() -> Result<(), Error> {
 
 async fn get_handler() {
     println!("Hello World!")
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Character {
+    name: String,
+    class: Class,
+    gold: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Class {
+    Warrior,
+    Mage,
+    Ranger,
+}
+
+pub async fn into_rows<T>(rows: libsql::Rows) -> Vec<T>
+where
+    for<'de> T: Deserialize<'de>,
+{
+    let stream = rows.into_stream();
+
+    stream
+        .map(|r| from_row::<T>(&r.unwrap()).unwrap())
+        .collect::<Vec<_>>()
+        .await
 }
