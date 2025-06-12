@@ -1,10 +1,8 @@
-use axum::extract::State;
-use futures::StreamExt;
-use handlers::characters;
-use libsql::de::from_row;
+use handlers::characters::{AppState, get_characters, post_characters};
 use libsql::{Builder, Error};
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+
+use crate::handlers::characters::get_character;
+mod errors;
 mod handlers;
 
 #[tokio::main]
@@ -37,57 +35,19 @@ async fn main() -> Result<(), Error> {
 
     let state = AppState { conn: connection };
 
-    let router = axum::Router::new()
-        .route("/characters", axum::routing::get(get_characters))
+    let characters_router = axum::Router::new()
+        .route(
+            "/characters",
+            axum::routing::get(get_characters).post(post_characters),
+        )
+        .route("/characters/{name}", axum::routing::get(get_character))
         .with_state(state);
 
     let address: &'static str = "0.0.0.0:3000";
     let listener = tokio::net::TcpListener::bind(address).await.unwrap();
 
-    axum::serve(listener, router).await.unwrap();
+    db.sync().await?;
+    axum::serve(listener, characters_router).await.unwrap();
 
     Ok(())
-}
-
-#[axum::debug_handler]
-async fn get_characters(State(state): State<AppState>) {
-    let query = state
-        .conn
-        .query("SELECT * FROM characters", ())
-        .await
-        .unwrap();
-    let characters: Vec<Character> = into_rows(query).await;
-    println!("{:?}", characters);
-}
-
-#[derive(Clone)]
-struct AppState {
-    conn: libsql::Connection,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Character {
-    name: String,
-    class: Class,
-    gold: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum Class {
-    Warrior,
-    Mage,
-    Ranger,
-}
-
-pub async fn into_rows<T>(rows: libsql::Rows) -> Vec<T>
-where
-    for<'de> T: Deserialize<'de>,
-{
-    let stream = rows.into_stream();
-
-    stream
-        .map(|r| from_row::<T>(&r.unwrap()).unwrap())
-        .collect::<Vec<_>>()
-        .await
 }

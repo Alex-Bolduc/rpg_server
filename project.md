@@ -122,7 +122,7 @@ This server manages characters in a role-playing game, allowing them to own item
 
 ### 3. Expired auctions:
 
-- Auctions must be automatically removed once they expire.
+- Auctions' statuses have to be updated automatically without being queried. 
 
 ### 4. Items:
 
