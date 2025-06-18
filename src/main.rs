@@ -1,9 +1,10 @@
-use handlers::characters::{AppState, get_characters, post_characters};
+use handlers::characters::{AppState, get_characters, post_character};
 use libsql::{Builder, Error};
 
-use crate::handlers::characters::get_character;
+use crate::handlers::characters::{get_character, patch_character};
 mod errors;
 mod handlers;
+mod model;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -38,9 +39,12 @@ async fn main() -> Result<(), Error> {
     let characters_router = axum::Router::new()
         .route(
             "/characters",
-            axum::routing::get(get_characters).post(post_characters),
+            axum::routing::get(get_characters).post(post_character),
         )
-        .route("/characters/{name}", axum::routing::get(get_character))
+        .route(
+            "/characters/{name}",
+            axum::routing::get(get_character).patch(patch_character),
+        )
         .with_state(state);
 
     let address: &'static str = "0.0.0.0:3000";

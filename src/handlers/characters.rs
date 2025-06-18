@@ -3,25 +3,26 @@ use axum::{
     extract::{Json, Path, State},
     http::StatusCode,
 };
-use futures::StreamExt;
+use futures::TryStreamExt;
 use libsql::de::from_row;
 use serde::{Deserialize, Serialize};
+
+pub async fn into_rows<T>(rows: libsql::Rows) -> Result<Vec<T>>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let items = rows
+        .into_stream()
+        .map_err(Error::from)
+        .and_then(|r| async move { from_row::<T>(&r).map_err(Error::from) })
+        .try_collect::<Vec<_>>()
+        .await?;
+    Ok(items)
+}
 
 #[derive(Clone)]
 pub struct AppState {
     pub conn: libsql::Connection,
-}
-
-pub async fn into_rows<T>(rows: libsql::Rows) -> Vec<T>
-where
-    for<'de> T: Deserialize<'de>,
-{
-    let stream = rows.into_stream();
-
-    stream
-        .map(|r| from_row::<T>(&r.unwrap()).unwrap())
-        .collect::<Vec<_>>()
-        .await
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -49,29 +50,34 @@ impl Class {
     }
 }
 
-async fn get_characters_libsql_query(conn: &libsql::Connection) -> Vec<Character> {
-    let query = conn.query("SELECT * FROM characters", ()).await.unwrap();
-    let characters: Vec<Character> = into_rows(query).await;
-    characters
+// =========================Query functions=========================
+async fn get_characters_libsql_query(state: &State<AppState>) -> Result<Vec<Character>> {
+    let query = state.conn.query("SELECT * FROM characters", ()).await?;
+    let characters: Vec<Character> = into_rows(query).await?;
+    Ok(characters)
 }
 
-async fn get_character_libsql_query(conn: &libsql::Connection, name: String) -> Character {
-    let mut query = conn
+async fn get_character_libsql_query(
+    state: &State<AppState>,
+    name: &String,
+) -> Result<Option<Character>> {
+    let mut query = state
+        .conn
         .query(
             "SELECT name, class, gold FROM characters WHERE name = ?1",
-            [name],
+            [name.to_string()],
         )
-        .await
-        .unwrap();
-    let character = query.next().await.unwrap().unwrap();
-    let character: Character = from_row(&character).unwrap();
+        .await?;
+    let character = query.next().await?;
     character
+        .map(|row| from_row(&row).map_err(Error::from))
+        .transpose()
 }
 
-pub async fn get_characters(State(state): State<AppState>) -> Json<Vec<Character>> {
-    let characters = get_characters_libsql_query(&state.conn).await;
-    println!("{:?}", characters);
-    Json(characters)
+// =========================Handlers=========================
+pub async fn get_characters(state: State<AppState>) -> Result<Json<Vec<Character>>> {
+    let characters = get_characters_libsql_query(&state).await?;
+    Ok(Json(characters))
     // let mut header = HeaderMap::new();
     // header.insert(
     //     CONTENT_TYPE,
@@ -80,8 +86,8 @@ pub async fn get_characters(State(state): State<AppState>) -> Json<Vec<Character
     // (header, serde_json::to_string(&characters).unwrap())
 }
 
-pub async fn post_characters(
-    State(state): State<AppState>,
+pub async fn post_character(
+    state: State<AppState>,
     Json(character): Json<Character>,
 ) -> Result<(StatusCode, Json<Character>)> {
     if character.name.is_empty() {
@@ -97,17 +103,37 @@ pub async fn post_characters(
                 character.gold,
             ),
         )
-        .await
-        .unwrap();
+        .await?;
 
     Ok((StatusCode::CREATED, Json(character)))
 }
 
 pub async fn get_character(
-    State(state): State<AppState>,
+    state: State<AppState>,
     Path(name): Path<String>,
-) -> Json<Character> {
-    let character = get_character_libsql_query(&state.conn, name).await;
-    println!("{:?}", character);
-    Json(character)
+) -> Result<Json<Character>> {
+    let Some(character) = get_character_libsql_query(&state, &name).await? else {
+        return Err(Error::CharacterNotFound);
+    };
+    Ok(Json(character))
+}
+
+pub async fn patch_character(
+    state: State<AppState>,
+    Path(name): Path<String>,
+    Json(character_patch): Json<Character>,
+) -> Result<Json<Character>> {
+    let Some(mut character) = get_character_libsql_query(&state, &name).await? else {
+        return Err(Error::CharacterNotFound);
+    };
+    character.gold = character_patch.gold;
+    state
+        .conn
+        .execute(
+            "UPDATE characters SET gold = ?1 WHERE name = ?2;",
+            (character_patch.gold, name),
+        )
+        .await?;
+
+    Ok(Json(character))
 }

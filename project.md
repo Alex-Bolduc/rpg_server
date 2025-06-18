@@ -2,7 +2,7 @@
 
 ## Overview
 
-This server manages characters in a role-playing game, allowing them to own items, participate in auctions, and interact with an in-game economy.
+The project involves writing a REST API that manages characters in a role-playing game, allowing them to own items, participate in auctions, and interact with an in-game economy. The API stores the data in a SQLite database (in this case Turso LibSQL) which is exposed in the multiple different endpoints and their respective Methods.
 
 
 ## Requirements
@@ -10,6 +10,7 @@ This server manages characters in a role-playing game, allowing them to own item
 - The server must use Tokio for asynchronous programming [Docs](https://docs.rs/tokio/latest/tokio/)
 - The server must use the web framework [Axum](https://github.com/tokio-rs/axum) [Docs](https://docs.rs/axum/latest/axum/)
 - The database service used must be Turso [Platform](https://turso.tech/) (create free account via Github OAuth) [Docs](https://docs.turso.tech/sdk/rust/quickstart)
+- The database service must use embedded replicas for fast reads
 
 ## 📦 Entities
 
@@ -31,7 +32,7 @@ This server manages characters in a role-playing game, allowing them to own item
 
 - `GET /characters/{name}`: Get a character by name
 
-- `PUT /characters/{name}`: Update a character’s gold, the class is immutable
+- `PATCH /characters/{name}`: Update a character’s gold, the class is immutable
 
 - `DELETE /characters/{name}`: Delete a character
 
@@ -49,7 +50,7 @@ This server manages characters in a role-playing game, allowing them to own item
 
 - `GET /characters/{name}/auctions/{id}`: Get specific auction created by character
 
-- `POST /characters/{name}/auctions/{id}`: Create new auction for an item
+- `POST /characters/{name}/auctions`: Create new auction for an item
 
 - `DELETE /characters/{name}/auctions/{id}`: Cancel auction
 
