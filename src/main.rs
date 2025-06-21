@@ -1,7 +1,10 @@
-use handlers::characters::{AppState, get_characters, post_character};
+use axum::middleware;
+use handlers::characters::{
+    AppState, get_character, get_characters, middleware_character_exists, patch_character,
+    post_character,
+};
 use libsql::{Builder, Error};
 
-use crate::handlers::characters::{get_character, patch_character};
 mod errors;
 mod handlers;
 mod model;
@@ -45,6 +48,10 @@ async fn main() -> Result<(), Error> {
             "/characters/{name}",
             axum::routing::get(get_character).patch(patch_character),
         )
+        // .route_layer(middleware::from_fn_with_state(
+        //     state.clone(),
+        //     middleware_character_exists,
+        // ))
         .with_state(state);
 
     let address: &'static str = "0.0.0.0:3000";

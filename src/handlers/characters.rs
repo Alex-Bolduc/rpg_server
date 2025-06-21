@@ -1,11 +1,14 @@
 use crate::errors::{Error, Result};
 use axum::{
-    extract::{Json, Path, State},
+    extract::{Extension, Json, Path, Request, State},
     http::StatusCode,
+    middleware::Next,
+    response::{IntoResponse, Response},
 };
 use futures::TryStreamExt;
 use libsql::de::from_row;
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot::error;
 
 pub async fn into_rows<T>(rows: libsql::Rows) -> Result<Vec<T>>
 where
@@ -68,7 +71,7 @@ async fn get_character_libsql_query(
             [name.to_string()],
         )
         .await?;
-    let character = query.next().await?;
+    let character = query.next().await?; //None if there are no more rows
     character
         .map(|row| from_row(&row).map_err(Error::from))
         .transpose()
@@ -110,9 +113,9 @@ pub async fn post_character(
 
 pub async fn get_character(
     state: State<AppState>,
-    Path(name): Path<String>,
+    Extension(character): Extension<Character>,
 ) -> Result<Json<Character>> {
-    let Some(character) = get_character_libsql_query(&state, &name).await? else {
+    let Some(character) = get_character_libsql_query(&state, &character.name).await? else {
         return Err(Error::CharacterNotFound);
     };
     Ok(Json(character))
@@ -126,6 +129,7 @@ pub async fn patch_character(
     let Some(mut character) = get_character_libsql_query(&state, &name).await? else {
         return Err(Error::CharacterNotFound);
     };
+
     character.gold = character_patch.gold;
     state
         .conn
@@ -136,4 +140,41 @@ pub async fn patch_character(
         .await?;
 
     Ok(Json(character))
+}
+
+pub async fn delete_character(
+    state: State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<Character>> {
+    let Some(character) = get_character_libsql_query(&state, &name).await? else {
+        return Err(Error::CharacterNotFound);
+    };
+    state
+        .conn
+        .execute("DELETE FROM characters WHERE name = ?1;", [name])
+        .await?;
+
+    Ok(Json(character))
+}
+
+// =========================Middleware=========================
+pub async fn middleware_character_exists(
+    state: State<AppState>,
+    Path(name): Path<String>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let response = get_character_libsql_query(&state, &name).await;
+    match response {
+        Ok(None) => {
+            return Error::CharacterNotFound.into_response();
+        }
+        Err(e) => {
+            return e.into_response();
+        }
+        Ok(Some(character)) => {
+            request.extensions_mut().insert(character);
+            next.run(request).await
+        }
+    }
 }
