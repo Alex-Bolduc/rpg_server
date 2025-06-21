@@ -1,7 +1,7 @@
 use axum::middleware;
 use handlers::characters::{
-    AppState, get_character, get_characters, middleware_character_exists, patch_character,
-    post_character,
+    AppState, delete_character, get_character, get_characters, middleware_character_exists,
+    patch_character, post_character,
 };
 use libsql::{Builder, Error};
 
@@ -39,26 +39,31 @@ async fn main() -> Result<(), Error> {
 
     let state = AppState { conn: connection };
 
-    let characters_router = axum::Router::new()
-        .route(
-            "/characters",
-            axum::routing::get(get_characters).post(post_character),
-        )
+    let characters_router = axum::Router::new().route(
+        "/characters",
+        axum::routing::get(get_characters).post(post_character),
+    );
+    let characters_named_router = axum::Router::new()
         .route(
             "/characters/{name}",
-            axum::routing::get(get_character).patch(patch_character),
+            axum::routing::get(get_character)
+                .patch(patch_character)
+                .delete(delete_character),
         )
-        // .route_layer(middleware::from_fn_with_state(
-        //     state.clone(),
-        //     middleware_character_exists,
-        // ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            middleware_character_exists,
+        ))
+        .merge(characters_router)
         .with_state(state);
 
-    let address: &'static str = "0.0.0.0:3000";
+    let address: &'static str = "0.0.0.0:3001";
     let listener = tokio::net::TcpListener::bind(address).await.unwrap();
 
     db.sync().await?;
-    axum::serve(listener, characters_router).await.unwrap();
+    axum::serve(listener, characters_named_router)
+        .await
+        .unwrap();
 
     Ok(())
 }

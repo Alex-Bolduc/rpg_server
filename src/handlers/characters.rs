@@ -8,7 +8,6 @@ use axum::{
 use futures::TryStreamExt;
 use libsql::de::from_row;
 use serde::{Deserialize, Serialize};
-use tokio::sync::oneshot::error;
 
 pub async fn into_rows<T>(rows: libsql::Rows) -> Result<Vec<T>>
 where
@@ -111,31 +110,21 @@ pub async fn post_character(
     Ok((StatusCode::CREATED, Json(character)))
 }
 
-pub async fn get_character(
-    state: State<AppState>,
-    Extension(character): Extension<Character>,
-) -> Result<Json<Character>> {
-    let Some(character) = get_character_libsql_query(&state, &character.name).await? else {
-        return Err(Error::CharacterNotFound);
-    };
-    Ok(Json(character))
+pub async fn get_character(Extension(character): Extension<Character>) -> Json<Character> {
+    Json(character)
 }
 
 pub async fn patch_character(
     state: State<AppState>,
-    Path(name): Path<String>,
+    Extension(mut character): Extension<Character>,
     Json(character_patch): Json<Character>,
 ) -> Result<Json<Character>> {
-    let Some(mut character) = get_character_libsql_query(&state, &name).await? else {
-        return Err(Error::CharacterNotFound);
-    };
-
     character.gold = character_patch.gold;
     state
         .conn
         .execute(
             "UPDATE characters SET gold = ?1 WHERE name = ?2;",
-            (character_patch.gold, name),
+            (character_patch.gold, character.clone().name),
         )
         .await?;
 
@@ -144,14 +133,14 @@ pub async fn patch_character(
 
 pub async fn delete_character(
     state: State<AppState>,
-    Path(name): Path<String>,
+    Extension(character): Extension<Character>,
 ) -> Result<Json<Character>> {
-    let Some(character) = get_character_libsql_query(&state, &name).await? else {
-        return Err(Error::CharacterNotFound);
-    };
     state
         .conn
-        .execute("DELETE FROM characters WHERE name = ?1;", [name])
+        .execute(
+            "DELETE FROM characters WHERE name = ?1;",
+            [character.clone().name],
+        )
         .await?;
 
     Ok(Json(character))
