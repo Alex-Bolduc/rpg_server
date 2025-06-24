@@ -8,11 +8,13 @@ use serde::de;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug)]
 pub enum Error {
     EmptyName,
     Libsql(libsql::Error),
     De(de::value::Error),
     CharacterNotFound,
+    ItemNotFound,
 }
 
 // To allow conversion (for await? for libsql)
@@ -41,6 +43,7 @@ impl IntoResponse for Error {
                     .unwrap(),
             ),
             Error::CharacterNotFound => (StatusCode::NOT_FOUND, "This character does not exist."),
+            Error::ItemNotFound => (StatusCode::NOT_FOUND, "This item does not exist."),
         };
         (status, body).into_response()
     }
@@ -59,7 +62,10 @@ impl fmt::Display for Error {
                 write!(f, "Deserialization : {}", e)
             }
             Error::CharacterNotFound => {
-                write!(f, "User not found")
+                write!(f, "Character not found")
+            }
+            Error::ItemNotFound => {
+                write!(f, "Item not found")
             }
         }
     }

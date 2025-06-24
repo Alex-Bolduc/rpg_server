@@ -1,16 +1,22 @@
-use axum::middleware;
+use axum::{Router, middleware};
+use errors::{Error, Result};
+use futures::TryStreamExt;
 use handlers::characters::{
-    AppState, delete_character, get_character, get_characters, middleware_character_exists,
-    patch_character, post_character,
+    delete_character, get_character, get_characters, middleware_character_exists, patch_character,
+    post_character,
 };
-use libsql::{Builder, Error};
+use libsql::Builder;
+use libsql::de::from_row;
+use serde::Deserialize;
 
+use crate::handlers::items::{get_items, post_item};
 mod errors;
+
 mod handlers;
 mod model;
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<()> {
     // Setting up DB
     dotenv::dotenv().ok();
     let db_url = std::env::var("TURSO_DATABASE_URL").expect("TURSO DATABASE URL not set");
@@ -23,7 +29,7 @@ async fn main() -> Result<(), Error> {
 
     let connection = db.connect()?;
 
-    // Creating DB if it doesn't already exist
+    // Creating characters DB if it doesn't already exist
     connection
         .execute(
             "CREATE TABLE IF NOT EXISTS characters (
@@ -35,8 +41,18 @@ async fn main() -> Result<(), Error> {
         )
         .await?;
 
-    // Server
+    // Creating items DB if it doesn't already exist
+    connection
+        .execute(
+            "CREATE TABLE IF NOT EXISTS items (
+        id TEXT PRIMARY KEY CHECK (length(id) = 36),
+        name TEXT NOT NULL
+        )",
+            (),
+        )
+        .await?;
 
+    // Server
     let state = AppState { conn: connection };
 
     let characters_router = axum::Router::new().route(
@@ -53,17 +69,39 @@ async fn main() -> Result<(), Error> {
         .layer(middleware::from_fn_with_state(
             state.clone(),
             middleware_character_exists,
-        ))
-        .merge(characters_router)
-        .with_state(state);
+        ));
 
+    let items_router =
+        axum::Router::new().route("/items", axum::routing::get(get_items).post(post_item));
+
+    let router = Router::new()
+        .merge(characters_router)
+        .merge(characters_named_router)
+        .merge(items_router)
+        .with_state(state);
     let address: &'static str = "0.0.0.0:3001";
     let listener = tokio::net::TcpListener::bind(address).await.unwrap();
 
     db.sync().await?;
-    axum::serve(listener, characters_named_router)
-        .await
-        .unwrap();
+    axum::serve(listener, router).await.unwrap();
 
     Ok(())
+}
+
+#[derive(Clone)]
+pub struct AppState {
+    pub conn: libsql::Connection,
+}
+
+pub async fn into_rows<T>(rows: libsql::Rows) -> Result<Vec<T>>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let items = rows
+        .into_stream()
+        .map_err(Error::from)
+        .and_then(|r| async move { from_row::<T>(&r).map_err(Error::from) })
+        .try_collect::<Vec<_>>()
+        .await?;
+    Ok(items)
 }

@@ -1,36 +1,26 @@
-use crate::errors::{Error, Result};
+use crate::{
+    AppState,
+    errors::{Error, Result},
+    into_rows,
+};
 use axum::{
     extract::{Extension, Json, Path, Request, State},
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use futures::TryStreamExt;
 use libsql::de::from_row;
 use serde::{Deserialize, Serialize};
-
-pub async fn into_rows<T>(rows: libsql::Rows) -> Result<Vec<T>>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    let items = rows
-        .into_stream()
-        .map_err(Error::from)
-        .and_then(|r| async move { from_row::<T>(&r).map_err(Error::from) })
-        .try_collect::<Vec<_>>()
-        .await?;
-    Ok(items)
-}
-
-#[derive(Clone)]
-pub struct AppState {
-    pub conn: libsql::Connection,
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Character {
     name: String,
     class: Class,
+    gold: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GoldUpdate {
     gold: u64,
 }
 
@@ -117,7 +107,7 @@ pub async fn get_character(Extension(character): Extension<Character>) -> Json<C
 pub async fn patch_character(
     state: State<AppState>,
     Extension(mut character): Extension<Character>,
-    Json(character_patch): Json<Character>,
+    Json(character_patch): Json<GoldUpdate>,
 ) -> Result<Json<Character>> {
     character.gold = character_patch.gold;
     state
