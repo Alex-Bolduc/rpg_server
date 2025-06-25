@@ -1,7 +1,6 @@
 use crate::{
     AppState,
     errors::{Error, Result},
-    handlers::characters::Character,
     into_rows,
 };
 use axum::{
@@ -10,7 +9,6 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use futures::TryStreamExt;
 use libsql::de::from_row;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -23,6 +21,11 @@ pub struct Item {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NewItem {
+    name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ItemNameUpdate {
     name: String,
 }
 
@@ -78,6 +81,39 @@ pub async fn post_item(
         .await?;
 
     Ok((StatusCode::CREATED, Json(item)))
+}
+
+pub async fn get_item(Extension(item): Extension<Item>) -> Json<Item> {
+    Json(item)
+}
+
+pub async fn patch_item(
+    state: State<AppState>,
+    Extension(mut item): Extension<Item>,
+    Json(item_patch): Json<ItemNameUpdate>,
+) -> Result<Json<Item>> {
+    item.name = item_patch.name.clone();
+    state
+        .conn
+        .execute(
+            "UPDATE items SET name = ?1 WHERE id = ?2;",
+            (item_patch.name.as_str(), item.id.to_string()),
+        )
+        .await?;
+
+    Ok(Json(item))
+}
+
+pub async fn delete_item(
+    state: State<AppState>,
+    Extension(item): Extension<Item>,
+) -> Result<Json<Item>> {
+    state
+        .conn
+        .execute("DELETE FROM items WHERE id = ?1;", [item.id.to_string()])
+        .await?;
+
+    Ok(Json(item))
 }
 
 // =========================Middleware=========================

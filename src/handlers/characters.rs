@@ -20,7 +20,7 @@ pub struct Character {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct GoldUpdate {
+pub struct CharacterGoldUpdate {
     gold: u64,
 }
 
@@ -107,7 +107,7 @@ pub async fn get_character(Extension(character): Extension<Character>) -> Json<C
 pub async fn patch_character(
     state: State<AppState>,
     Extension(mut character): Extension<Character>,
-    Json(character_patch): Json<GoldUpdate>,
+    Json(character_patch): Json<CharacterGoldUpdate>,
 ) -> Result<Json<Character>> {
     character.gold = character_patch.gold;
     state

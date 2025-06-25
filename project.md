@@ -54,7 +54,7 @@ The project involves writing a REST API that manages characters in a role-playin
 
 - `DELETE /characters/{name}/auctions/{id}`: Cancel auction
 
-- `POST /characters/{name}/auctions/{id}/purchase`: Purchase the auction and associate the item to the buyer
+- `POST /characters/{name}/auctions/{id}/purchase`: Purchase the auction and associate the item to the buyer (see POST/auctions)
 
 
 ### 2. Item
@@ -73,7 +73,7 @@ The project involves writing a REST API that manages characters in a role-playin
 
 `GET /items/{id}`: Get specific item definition
 
-`PUT /items/{id}`: Update an item definition name
+`PATCH /items/{id}`: Update an item definition name
 
 `DELETE /items/{id}`: Delete a specific item definition
 
@@ -100,6 +100,8 @@ The project involves writing a REST API that manages characters in a role-playin
 `GET /auctions`: List all auctions (it must be possible to query actions by status via the querystring)
 
 `GET /auctions/{id}`: Get specific auction
+
+`POST /auctions/{id}/purchase`: Purchase the auction and associate the item to the buyer
 
 ## 📜 Business Rules:
 

@@ -9,11 +9,11 @@ use libsql::Builder;
 use libsql::de::from_row;
 use serde::Deserialize;
 
-use crate::handlers::items::{get_items, post_item};
+use crate::handlers::items::{
+    delete_item, get_item, get_items, middleware_item_exists, patch_item, post_item,
+};
 mod errors;
-
 mod handlers;
-mod model;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -46,7 +46,7 @@ async fn main() -> Result<()> {
         .execute(
             "CREATE TABLE IF NOT EXISTS items (
         id TEXT PRIMARY KEY CHECK (length(id) = 36),
-        name TEXT NOT NULL
+        name TEXT NOT NULL UNIQUE
         )",
             (),
         )
@@ -55,6 +55,7 @@ async fn main() -> Result<()> {
     // Server
     let state = AppState { conn: connection };
 
+    // Characters router
     let characters_router = axum::Router::new().route(
         "/characters",
         axum::routing::get(get_characters).post(post_character),
@@ -71,13 +72,28 @@ async fn main() -> Result<()> {
             middleware_character_exists,
         ));
 
+    // Items router
     let items_router =
         axum::Router::new().route("/items", axum::routing::get(get_items).post(post_item));
 
+    let items_named_router = axum::Router::new()
+        .route(
+            "/items/{id}",
+            axum::routing::get(get_item)
+                .patch(patch_item)
+                .delete(delete_item),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            middleware_item_exists,
+        ));
+
+    // Main router (all routers merged)
     let router = Router::new()
         .merge(characters_router)
         .merge(characters_named_router)
         .merge(items_router)
+        .merge(items_named_router)
         .with_state(state);
     let address: &'static str = "0.0.0.0:3001";
     let listener = tokio::net::TcpListener::bind(address).await.unwrap();
