@@ -119,7 +119,11 @@ The project involves writing a REST API that manages characters in a role-playin
 
 - The item is transferred to the buyer.
 
-- The auction is removed from the database.
+- The seller cannot be the buyer.
+
+- The auction status goes from "Active" to "Sold".
+
+- The buyer must exist.
 
 ### 3. Expired auctions:
 

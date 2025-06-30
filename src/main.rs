@@ -1,4 +1,7 @@
+use std::time::Duration;
+
 use axum::{Router, middleware};
+use chrono::Utc;
 use errors::{Error, Result};
 use futures::TryStreamExt;
 
@@ -14,6 +17,7 @@ use handlers::{
     },
     items::{delete_item, get_item, get_items, middleware_item_exists, patch_item, post_item},
 };
+use tokio::time::sleep;
 
 use crate::handlers::auctions::{get_auction, middleware_auction_exists};
 mod errors;
@@ -33,8 +37,11 @@ async fn main() -> Result<()> {
 
     let connection = db.connect()?;
 
+    let state = AppState { conn: connection };
+
     // Creating characters DB if it doesn't already exist
-    connection
+    state
+        .conn
         .execute(
             "CREATE TABLE IF NOT EXISTS characters (
         name TEXT PRIMARY KEY,
@@ -46,7 +53,8 @@ async fn main() -> Result<()> {
         .await?;
 
     // Creating items DB if it doesn't already exist
-    connection
+    state
+        .conn
         .execute(
             "CREATE TABLE IF NOT EXISTS items (
         id TEXT PRIMARY KEY CHECK (length(id) = 36),
@@ -57,7 +65,8 @@ async fn main() -> Result<()> {
         .await?;
 
     // Creating items_instances DB if it doesn't already exist
-    connection
+    state
+        .conn
         .execute(
             "CREATE TABLE IF NOT EXISTS items_instances (
         id TEXT PRIMARY KEY CHECK (length(id) = 36),
@@ -73,7 +82,8 @@ async fn main() -> Result<()> {
         .await?;
 
     // Creating auctions DB if it doesn't already exist
-    connection
+    state
+        .conn
         .execute(
             "CREATE TABLE IF NOT EXISTS auctions (
         id TEXT PRIMARY KEY CHECK (length(id) = 36),
@@ -89,9 +99,6 @@ async fn main() -> Result<()> {
             (),
         )
         .await?;
-
-    // Server
-    let state = AppState { conn: connection };
 
     // Characters router
     let characters_router = axum::Router::new().route(
@@ -144,9 +151,11 @@ async fn main() -> Result<()> {
         .merge(items_named_router)
         .merge(auctions_router)
         .merge(auctions_named_router)
-        .with_state(state);
+        .with_state(state.clone());
     let address: &'static str = "0.0.0.0:3001";
     let listener = tokio::net::TcpListener::bind(address).await.unwrap();
+
+    spawn_auction_status_updater(state.conn);
 
     db.sync().await?;
     axum::serve(listener, router).await.unwrap();
@@ -170,4 +179,26 @@ where
         .try_collect::<Vec<_>>()
         .await?;
     Ok(items)
+}
+
+fn spawn_auction_status_updater(conn: libsql::Connection) {
+    tokio::spawn(async move {
+        loop {
+            sleep(Duration::from_secs(30)).await;
+
+            let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+            let result = conn
+                .execute(
+                    "UPDATE auctions SET status = 'expired' WHERE end_date < ?1 AND status = 'active'",
+                    [now],
+                )
+                .await;
+
+            match result {
+                Ok(_) => println!("Auction statuses updated."),
+                Err(e) => println!("Failed to update auction statuses: {}", e),
+            }
+        }
+    });
 }

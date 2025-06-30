@@ -17,6 +17,9 @@ pub enum Error {
     ItemNotFound,
     ItemInstanceNotFound,
     AuctionNotFound,
+    AuctionNotActive,
+    InsufficientGold,
+    IncorrectBuyer,
 }
 
 // To allow conversion (for await? for libsql)
@@ -50,6 +53,15 @@ impl IntoResponse for Error {
                 (StatusCode::NOT_FOUND, "This item instance does not exist.")
             }
             Error::AuctionNotFound => (StatusCode::NOT_FOUND, "This auction does not exist."),
+            Error::AuctionNotActive => (StatusCode::NOT_FOUND, "This auction is not active."),
+            Error::InsufficientGold => (
+                StatusCode::FORBIDDEN,
+                "The buyer does not have enough gold.",
+            ),
+            Error::IncorrectBuyer => (
+                StatusCode::FORBIDDEN,
+                "The buyer cannot be the auction's owner.",
+            ),
         };
         (status, body).into_response()
     }
@@ -78,6 +90,15 @@ impl fmt::Display for Error {
             }
             Error::AuctionNotFound => {
                 write!(f, "Auction not found")
+            }
+            Error::AuctionNotActive => {
+                write!(f, "Auction not active")
+            }
+            Error::InsufficientGold => {
+                write!(f, "Not enough gold")
+            }
+            Error::IncorrectBuyer => {
+                write!(f, "Incorrect buyer")
             }
         }
     }

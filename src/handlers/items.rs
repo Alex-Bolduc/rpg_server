@@ -1,6 +1,7 @@
 use crate::{
     AppState,
     errors::{Error, Result},
+    handlers::auctions::{Auction, get_auction_libsql_query},
     into_rows,
 };
 use axum::{
@@ -52,6 +53,21 @@ pub async fn get_item_libsql_query(state: &State<AppState>, id: &Uuid) -> Result
     let item = query.next().await?; //None if there are no more rows
     item.map(|row| from_row(&row).map_err(Error::from))
         .transpose()
+}
+
+async fn get_item_auctions_libsql_query(
+    state: &State<AppState>,
+    id: &Uuid,
+) -> Result<Vec<Auction>> {
+    let query = state
+        .conn
+        .query(
+            "SELECT * FROM auctions WHERE auctioned_item_id = ?1",
+            [id.to_string()],
+        )
+        .await?;
+    let auctions: Vec<Auction> = into_rows(query).await?;
+    Ok(auctions)
 }
 
 // =========================Handlers=========================
@@ -124,6 +140,18 @@ pub async fn delete_item(
     Ok(Json(item))
 }
 
+pub async fn get_item_auctions(
+    Extension(item): Extension<Item>,
+    state: State<AppState>,
+) -> Result<Json<Vec<Auction>>> {
+    let auctions = get_item_auctions_libsql_query(&state, &item.id).await?;
+    Ok(Json(auctions))
+}
+
+pub async fn get_item_auction(Extension(auction): Extension<Auction>) -> Json<Auction> {
+    Json(auction)
+}
+
 // =========================Middleware=========================
 pub async fn middleware_item_exists(
     state: State<AppState>,
@@ -142,28 +170,28 @@ pub async fn middleware_item_exists(
     }
 }
 
-// pub async fn middleware_item_and_auction_exist(
-//     state: State<AppState>,
-//     Path((item_id, auction_id)): Path<(Uuid, Uuid)>,
-//     mut request: Request,
-//     next: Next,
-// ) -> Response {
-//     let response_character = get_character_libsql_query(&state, &name).await;
-//     let response_item = get_character_item_libsql_query(&state, &name, &id).await;
+pub async fn middleware_item_and_auction_exist(
+    state: State<AppState>,
+    Path((item_id, auction_id)): Path<(Uuid, Uuid)>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let response_item = get_item_libsql_query(&state, &item_id).await;
+    let response_auction = get_auction_libsql_query(&state, &auction_id).await;
 
-//     let character = match response_character {
-//         Ok(None) => return Error::CharacterNotFound.into_response(),
-//         Err(e) => return e.into_response(),
-//         Ok(Some(character)) => character,
-//     };
-//     request.extensions_mut().insert(character);
+    let item = match response_item {
+        Ok(None) => return Error::ItemNotFound.into_response(),
+        Err(e) => return e.into_response(),
+        Ok(Some(item)) => item,
+    };
+    request.extensions_mut().insert(item);
 
-//     let item = match response_item {
-//         Ok(None) => return Error::ItemNotFound.into_response(),
-//         Err(e) => return e.into_response(),
-//         Ok(Some(item)) => item,
-//     };
-//     request.extensions_mut().insert(item);
+    let auction = match response_auction {
+        Ok(None) => return Error::AuctionNotFound.into_response(),
+        Err(e) => return e.into_response(),
+        Ok(Some(auction)) => auction,
+    };
+    request.extensions_mut().insert(auction);
 
-//     next.run(request).await
-// }
+    next.run(request).await
+}

@@ -1,6 +1,7 @@
 use crate::{
     AppState,
     errors::{Error, Result},
+    handlers::characters::{Character, get_character_libsql_query},
     into_rows,
 };
 use axum::{
@@ -16,11 +17,13 @@ use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Auction {
-    id: Uuid,
-    creation_date: String,
-    end_date: String,
-    price: u64,
-    status: AuctionStatus,
+    pub id: Uuid,
+    pub auctioned_item_id: Uuid,
+    pub seller_name: String,
+    pub creation_date: DateTime<Utc>,
+    pub end_date: DateTime<Utc>,
+    pub price: u64,
+    pub status: AuctionStatus,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -32,7 +35,7 @@ pub enum AuctionStatus {
 }
 
 impl AuctionStatus {
-    fn to_string(&self) -> String {
+    pub fn to_string(&self) -> String {
         match self {
             AuctionStatus::Active => "active".to_string(),
             AuctionStatus::Sold => "sold".to_string(),
@@ -101,7 +104,51 @@ pub async fn get_auction(Extension(auction): Extension<Auction>) -> Json<Auction
     Json(auction)
 }
 
-pub async fn post_auction() {}
+pub async fn post_auction(
+    state: State<AppState>,
+    Extension(mut auction): Extension<Auction>,
+    Json(buyer): Json<Character>,
+) -> Result<(StatusCode, Option<Json<Auction>>)> {
+    let Some(buyer) = get_character_libsql_query(&state, &buyer.name).await? else {
+        return Err(Error::CharacterNotFound);
+    };
+
+    let present = Utc::now();
+    if present >= auction.end_date {
+        return Err(Error::AuctionNotActive);
+    }
+
+    if auction.price > buyer.gold {
+        return Err(Error::InsufficientGold);
+    }
+
+    if buyer.name == auction.seller_name {
+        return Err(Error::IncorrectBuyer);
+    }
+
+    let Some(owner) = get_character_libsql_query(&state, &auction.seller_name).await? else {
+        return Err(Error::CharacterNotFound);
+    };
+
+    state
+        .conn
+        .execute(
+            "UPDATE characters SET gold = ?1 WHERE name = ?2",
+            (buyer.gold - auction.price, buyer.name.as_str()),
+        )
+        .await?;
+    state
+        .conn
+        .execute(
+            "UPDATE characters SET gold = ?1 WHERE name = ?2",
+            (owner.gold + auction.price, auction.seller_name.as_str()),
+        )
+        .await?;
+
+    auction.status = AuctionStatus::Sold;
+
+    Ok((StatusCode::CREATED, Some(Json(auction))))
+}
 
 // =========================Middleware=========================
 pub async fn middleware_auction_exists(

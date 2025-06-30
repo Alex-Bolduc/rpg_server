@@ -2,7 +2,7 @@ use crate::{
     AppState,
     errors::{Error, Result},
     handlers::{
-        auctions::{Auction, get_auction_libsql_query},
+        auctions::{Auction, AuctionStatus, get_auction_libsql_query},
         items::{Item, ItemInstance, get_item_libsql_query},
     },
     into_rows,
@@ -13,15 +13,16 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use chrono::{TimeDelta, Utc};
 use libsql::de::from_row;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Character {
-    name: String,
+    pub name: String,
     class: Class,
-    gold: u64,
+    pub gold: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -54,7 +55,7 @@ async fn get_characters_libsql_query(state: &State<AppState>) -> Result<Vec<Char
     Ok(characters)
 }
 
-async fn get_character_libsql_query(
+pub async fn get_character_libsql_query(
     state: &State<AppState>,
     name: &String,
 ) -> Result<Option<Character>> {
@@ -165,7 +166,7 @@ pub async fn patch_character(
     state
         .conn
         .execute(
-            "UPDATE characters SET gold = ?1 WHERE name = ?2;",
+            "UPDATE characters SET gold = ?1 WHERE name = ?2",
             (character_patch.gold, character.clone().name),
         )
         .await?;
@@ -261,12 +262,21 @@ pub async fn post_character_auction(
     Extension(character): Extension<Character>,
     Json(item): Json<ItemInstance>,
 ) -> Result<(StatusCode, Option<Json<Auction>>)> {
-    let item_to_be_auctioned =
-        get_character_item_libsql_query(&state, &character.name, &item.id).await;
-    match item_to_be_auctioned {
-        Ok(None) => return Ok((StatusCode::NOT_FOUND, None)),
-        Err(e) => return Ok((StatusCode::NOT_FOUND, None)),
-        Ok(Some(item)) => item,
+    let Some(_) = get_character_item_libsql_query(&state, &character.name, &item.id).await? else {
+        return Err(Error::ItemInstanceNotFound);
+    };
+
+    let new_id = Uuid::new_v4();
+    let new_creation_date = Utc::now();
+    let new_end_date = new_creation_date + TimeDelta::minutes(1);
+    let new_auction = Auction {
+        id: new_id,
+        auctioned_item_id: item.item_id,
+        seller_name: character.name,
+        creation_date: new_creation_date,
+        end_date: new_end_date,
+        price: 100,
+        status: AuctionStatus::Active,
     };
 
     state
@@ -274,15 +284,26 @@ pub async fn post_character_auction(
         .execute(
             "INSERT INTO auctions (id, auctioned_item_id, seller_name, creation_date, end_date, price, status) 
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            (
-                character.name.as_str(),
-                character.class.to_string(),
-                character.gold,
-            ),
+            (new_auction.id.to_string(), new_auction.auctioned_item_id.to_string(), new_auction.seller_name.as_str(), new_auction.creation_date.format("%Y-%m-%d %H:%M:%S").to_string(), new_auction.end_date.format("%Y-%m-%d %H:%M:%S").to_string(), new_auction.price, new_auction.status.to_string()),
         )
         .await?;
 
-    Ok((StatusCode::CREATED, Json(auction)))
+    Ok((StatusCode::CREATED, Some(Json(new_auction))))
+}
+
+pub async fn delete_character_auction(
+    state: State<AppState>,
+    Extension(auction): Extension<Auction>,
+) -> Result<Json<Auction>> {
+    state
+        .conn
+        .execute(
+            "DELETE FROM auctions WHERE id = ?1",
+            [auction.id.to_string()],
+        )
+        .await?;
+
+    Ok(Json(auction))
 }
 
 // =========================Middleware=========================
