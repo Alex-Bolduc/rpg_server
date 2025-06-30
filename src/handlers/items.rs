@@ -15,13 +15,21 @@ use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Item {
-    id: Uuid,
-    name: String,
+    pub id: Uuid,
+    pub name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NewItem {
     name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ItemInstance {
+    pub id: Uuid,
+    pub item_name: String,
+    pub item_id: Uuid,
+    pub owner_name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -36,10 +44,10 @@ async fn get_items_libsql_query(state: &State<AppState>) -> Result<Vec<Item>> {
     Ok(items)
 }
 
-async fn get_item_libsql_query(state: &State<AppState>, id: &Uuid) -> Result<Option<Item>> {
+pub async fn get_item_libsql_query(state: &State<AppState>, id: &Uuid) -> Result<Option<Item>> {
     let mut query = state
         .conn
-        .query("SELECT id, name FROM items WHERE id = ?1", [id.to_string()])
+        .query("SELECT * FROM items WHERE id = ?1", [id.to_string()])
         .await?;
     let item = query.next().await?; //None if there are no more rows
     item.map(|row| from_row(&row).map_err(Error::from))
@@ -66,9 +74,9 @@ pub async fn post_item(
         return Err(Error::EmptyName);
     }
 
-    let id = Uuid::new_v4();
+    let new_id = Uuid::new_v4();
     let item = Item {
-        id: id,
+        id: new_id,
         name: new_item.name,
     };
 
@@ -125,15 +133,37 @@ pub async fn middleware_item_exists(
 ) -> Response {
     let response = get_item_libsql_query(&state, &id).await;
     match response {
-        Ok(None) => {
-            return Error::ItemNotFound.into_response();
-        }
-        Err(e) => {
-            return e.into_response();
-        }
+        Ok(None) => Error::ItemNotFound.into_response(),
+        Err(e) => e.into_response(),
         Ok(Some(item)) => {
             request.extensions_mut().insert(item);
             next.run(request).await
         }
     }
 }
+
+// pub async fn middleware_item_and_auction_exist(
+//     state: State<AppState>,
+//     Path((item_id, auction_id)): Path<(Uuid, Uuid)>,
+//     mut request: Request,
+//     next: Next,
+// ) -> Response {
+//     let response_character = get_character_libsql_query(&state, &name).await;
+//     let response_item = get_character_item_libsql_query(&state, &name, &id).await;
+
+//     let character = match response_character {
+//         Ok(None) => return Error::CharacterNotFound.into_response(),
+//         Err(e) => return e.into_response(),
+//         Ok(Some(character)) => character,
+//     };
+//     request.extensions_mut().insert(character);
+
+//     let item = match response_item {
+//         Ok(None) => return Error::ItemNotFound.into_response(),
+//         Err(e) => return e.into_response(),
+//         Ok(Some(item)) => item,
+//     };
+//     request.extensions_mut().insert(item);
+
+//     next.run(request).await
+// }

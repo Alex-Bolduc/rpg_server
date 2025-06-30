@@ -54,7 +54,7 @@ The project involves writing a REST API that manages characters in a role-playin
 
 - `DELETE /characters/{name}/auctions/{id}`: Cancel auction
 
-- `POST /characters/{name}/auctions/{id}/purchase`: Purchase the auction and associate the item to the buyer (see POST/auctions)
+- `POST /characters/{name}/auctions/{id}/purchase`: Purchase the auction and associate the item to the buyer (do POST /auctions instead)
 
 
 ### 2. Item
@@ -108,8 +108,6 @@ The project involves writing a REST API that manages characters in a role-playin
 ### 1. To create an auction:
 
 - The character must own at least one instance of the item.
-
-- The character must have enough gold to pay the auction creation fee (if applicable).
 
 ### 2. To purchase an auction:
 

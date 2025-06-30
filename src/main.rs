@@ -1,17 +1,21 @@
 use axum::{Router, middleware};
 use errors::{Error, Result};
 use futures::TryStreamExt;
-use handlers::characters::{
-    delete_character, get_character, get_characters, middleware_character_exists, patch_character,
-    post_character,
-};
+
 use libsql::Builder;
 use libsql::de::from_row;
 use serde::Deserialize;
 
-use crate::handlers::items::{
-    delete_item, get_item, get_items, middleware_item_exists, patch_item, post_item,
+use handlers::{
+    auctions::get_auctions,
+    characters::{
+        delete_character, get_character, get_characters, middleware_character_exists,
+        patch_character, post_character,
+    },
+    items::{delete_item, get_item, get_items, middleware_item_exists, patch_item, post_item},
 };
+
+use crate::handlers::auctions::{get_auction, middleware_auction_exists};
 mod errors;
 mod handlers;
 
@@ -47,6 +51,40 @@ async fn main() -> Result<()> {
             "CREATE TABLE IF NOT EXISTS items (
         id TEXT PRIMARY KEY CHECK (length(id) = 36),
         name TEXT NOT NULL UNIQUE
+        )",
+            (),
+        )
+        .await?;
+
+    // Creating items_instances DB if it doesn't already exist
+    connection
+        .execute(
+            "CREATE TABLE IF NOT EXISTS items_instances (
+        id TEXT PRIMARY KEY CHECK (length(id) = 36),
+        item_name TEXT NOT NULL,
+        item_id TEXT NOT NULL CHECK (length(item_id) = 36),
+        owner_name TEXT NOT NULL,
+        FOREIGN KEY (item_name) REFERENCES items(name) ON DELETE CASCADE ON UPDATE CASCADE,
+        FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+        FOREIGN KEY (owner_name) REFERENCES characters(name) ON DELETE CASCADE
+        )",
+            (),
+        )
+        .await?;
+
+    // Creating auctions DB if it doesn't already exist
+    connection
+        .execute(
+            "CREATE TABLE IF NOT EXISTS auctions (
+        id TEXT PRIMARY KEY CHECK (length(id) = 36),
+        auctioned_item_id TEXT NOT NULL CHECK (length(item_auctioned_id) = 36),
+        seller_name TEXT NOT NULL,
+        creation_date TEXT NOT NULL, 
+        end_date TEXT NOT NULL, 
+        price INTEGER NOT NULL CHECK (price >= 0), 
+        status TEXT NOT NULL CHECK (status IN ('active', 'sold', 'expired')), 
+        FOREIGN KEY (auctioned_item_id) REFERENCES items(id) ON DELETE CASCADE,
+        FOREIGN KEY (seller_name) REFERENCES characters(name) ON DELETE CASCADE
         )",
             (),
         )
@@ -88,12 +126,24 @@ async fn main() -> Result<()> {
             middleware_item_exists,
         ));
 
+    // Auctions router
+    let auctions_router = axum::Router::new().route("/auctions", axum::routing::get(get_auctions));
+
+    let auctions_named_router = axum::Router::new()
+        .route("/auctions/{id}", axum::routing::get(get_auction))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            middleware_auction_exists,
+        ));
+
     // Main router (all routers merged)
     let router = Router::new()
         .merge(characters_router)
         .merge(characters_named_router)
         .merge(items_router)
         .merge(items_named_router)
+        .merge(auctions_router)
+        .merge(auctions_named_router)
         .with_state(state);
     let address: &'static str = "0.0.0.0:3001";
     let listener = tokio::net::TcpListener::bind(address).await.unwrap();

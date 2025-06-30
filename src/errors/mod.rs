@@ -15,6 +15,8 @@ pub enum Error {
     De(de::value::Error),
     CharacterNotFound,
     ItemNotFound,
+    ItemInstanceNotFound,
+    AuctionNotFound,
 }
 
 // To allow conversion (for await? for libsql)
@@ -44,6 +46,10 @@ impl IntoResponse for Error {
             ),
             Error::CharacterNotFound => (StatusCode::NOT_FOUND, "This character does not exist."),
             Error::ItemNotFound => (StatusCode::NOT_FOUND, "This item does not exist."),
+            Error::ItemInstanceNotFound => {
+                (StatusCode::NOT_FOUND, "This item instance does not exist.")
+            }
+            Error::AuctionNotFound => (StatusCode::NOT_FOUND, "This auction does not exist."),
         };
         (status, body).into_response()
     }
@@ -66,6 +72,12 @@ impl fmt::Display for Error {
             }
             Error::ItemNotFound => {
                 write!(f, "Item not found")
+            }
+            Error::ItemInstanceNotFound => {
+                write!(f, "Item instance not found")
+            }
+            Error::AuctionNotFound => {
+                write!(f, "Auction not found")
             }
         }
     }
