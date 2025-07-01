@@ -230,7 +230,7 @@ pub async fn post_character_item(
     Ok((StatusCode::CREATED, Json(new_item_instance)))
 }
 
-pub async fn delete_character_item(
+pub async fn delete_character_item_instance(
     state: State<AppState>,
     Extension(item): Extension<ItemInstance>,
 ) -> Result<Json<ItemInstance>> {

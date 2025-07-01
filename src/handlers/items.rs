@@ -55,6 +55,22 @@ pub async fn get_item_libsql_query(state: &State<AppState>, id: &Uuid) -> Result
         .transpose()
 }
 
+pub async fn get_item_instance_libsql_query(
+    state: &State<AppState>,
+    id: &Uuid,
+) -> Result<Option<ItemInstance>> {
+    let mut query = state
+        .conn
+        .query(
+            "SELECT * FROM items_instances WHERE id = ?1",
+            [id.to_string()],
+        )
+        .await?;
+    let item = query.next().await?; //None if there are no more rows
+    item.map(|row| from_row(&row).map_err(Error::from))
+        .transpose()
+}
+
 async fn get_item_auctions_libsql_query(
     state: &State<AppState>,
     id: &Uuid,
@@ -170,17 +186,17 @@ pub async fn middleware_item_exists(
     }
 }
 
-pub async fn middleware_item_and_auction_exist(
+pub async fn middleware_item_instance_and_auction_exist(
     state: State<AppState>,
     Path((item_id, auction_id)): Path<(Uuid, Uuid)>,
     mut request: Request,
     next: Next,
 ) -> Response {
-    let response_item = get_item_libsql_query(&state, &item_id).await;
+    let response_item = get_item_instance_libsql_query(&state, &item_id).await;
     let response_auction = get_auction_libsql_query(&state, &auction_id).await;
 
     let item = match response_item {
-        Ok(None) => return Error::ItemNotFound.into_response(),
+        Ok(None) => return Error::ItemInstanceNotFound.into_response(),
         Err(e) => return e.into_response(),
         Ok(Some(item)) => item,
     };

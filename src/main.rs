@@ -19,7 +19,16 @@ use handlers::{
 };
 use tokio::time::sleep;
 
-use crate::handlers::auctions::{get_auction, middleware_auction_exists};
+use crate::handlers::{
+    auctions::{get_auction, middleware_auction_exists, post_auction},
+    characters::{
+        delete_character_auction, delete_character_item_instance, get_character_auction,
+        get_character_auctions, get_character_item, get_character_items,
+        middleware_character_and_auction_exist, middleware_character_and_item_exist,
+        middleware_character_and_item_instance_exist, post_character_auction, post_character_item,
+    },
+    items::{get_item_auction, get_item_auctions, middleware_item_instance_and_auction_exist},
+};
 mod errors;
 mod handlers;
 
@@ -101,11 +110,12 @@ async fn main() -> Result<()> {
         .await?;
 
     // Characters router
-    let characters_router = axum::Router::new().route(
+    let characters = axum::Router::new().route(
         "/characters",
         axum::routing::get(get_characters).post(post_character),
     );
-    let characters_named_router = axum::Router::new()
+
+    let characters_name = axum::Router::new()
         .route(
             "/characters/{name}",
             axum::routing::get(get_character)
@@ -117,11 +127,60 @@ async fn main() -> Result<()> {
             middleware_character_exists,
         ));
 
-    // Items router
-    let items_router =
-        axum::Router::new().route("/items", axum::routing::get(get_items).post(post_item));
+    let characters_name_items = axum::Router::new()
+        .route(
+            "/characters/{name}/items",
+            axum::routing::get(get_character_items),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            middleware_character_exists,
+        ));
 
-    let items_named_router = axum::Router::new()
+    let characters_name_items_item_id = axum::Router::new()
+        .route(
+            "/characters/{name}/items/{item_id}",
+            axum::routing::get(get_character_item).delete(delete_character_item_instance),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            middleware_character_and_item_instance_exist,
+        ));
+
+    let characters_name_items_item_id_post = axum::Router::new()
+        .route(
+            "/characters/{name}/items/{item_id}",
+            axum::routing::post(post_character_item),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            middleware_character_and_item_exist,
+        ));
+
+    let characters_name_auctions = axum::Router::new()
+        .route(
+            "/characters/{name}/auctions",
+            axum::routing::get(get_character_auctions).post(post_character_auction),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            middleware_character_exists,
+        ));
+
+    let characters_name_auctions_id = axum::Router::new()
+        .route(
+            "/characters/{name}/auctions/{id}",
+            axum::routing::get(get_character_auction).delete(delete_character_auction),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            middleware_character_and_auction_exist,
+        ));
+
+    // Items router
+    let items = axum::Router::new().route("/items", axum::routing::get(get_items).post(post_item));
+
+    let items_id = axum::Router::new()
         .route(
             "/items/{id}",
             axum::routing::get(get_item)
@@ -133,11 +192,38 @@ async fn main() -> Result<()> {
             middleware_item_exists,
         ));
 
-    // Auctions router
-    let auctions_router = axum::Router::new().route("/auctions", axum::routing::get(get_auctions));
+    let items_id_auctions = axum::Router::new()
+        .route(
+            "/items/{id}/auctions",
+            axum::routing::get(get_item_auctions),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            middleware_item_exists,
+        ));
 
-    let auctions_named_router = axum::Router::new()
+    let items_id_auctions_auction_id = axum::Router::new()
+        .route(
+            "/items/{id}/auctions/{auction_id}",
+            axum::routing::get(get_item_auction),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            middleware_item_instance_and_auction_exist,
+        ));
+
+    // Auctions router
+    let auctions = axum::Router::new().route("/auctions", axum::routing::get(get_auctions));
+
+    let auctions_id = axum::Router::new()
         .route("/auctions/{id}", axum::routing::get(get_auction))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            middleware_auction_exists,
+        ));
+
+    let auctions_id_purchase = axum::Router::new()
+        .route("/auctions/{id}/purchase", axum::routing::post(post_auction))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             middleware_auction_exists,
@@ -145,12 +231,20 @@ async fn main() -> Result<()> {
 
     // Main router (all routers merged)
     let router = Router::new()
-        .merge(characters_router)
-        .merge(characters_named_router)
-        .merge(items_router)
-        .merge(items_named_router)
-        .merge(auctions_router)
-        .merge(auctions_named_router)
+        .merge(characters)
+        .merge(characters_name)
+        .merge(characters_name_items)
+        .merge(characters_name_items_item_id)
+        .merge(characters_name_items_item_id_post)
+        .merge(characters_name_auctions)
+        .merge(characters_name_auctions_id)
+        .merge(items)
+        .merge(items_id)
+        .merge(items_id_auctions)
+        .merge(items_id_auctions_auction_id)
+        .merge(auctions)
+        .merge(auctions_id)
+        .merge(auctions_id_purchase)
         .with_state(state.clone());
     let address: &'static str = "0.0.0.0:3001";
     let listener = tokio::net::TcpListener::bind(address).await.unwrap();

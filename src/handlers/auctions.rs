@@ -113,8 +113,8 @@ pub async fn post_auction(
         return Err(Error::CharacterNotFound);
     };
 
-    let present = Utc::now();
-    if present >= auction.end_date {
+    let now = Utc::now();
+    if now > auction.end_date || auction.status.to_string() == "sold" {
         return Err(Error::AuctionNotActive);
     }
 
